@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <title>Go Blockchain</title>
+  <script>
+    function sendTransaction() {
+      let sender = document.getElementById("sender").value;
+      let receiver = document.getElementById("receiver").value;
+      let amount = document.getElementById("amount").value;
+
+      fetch("/transaction", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ Sender: sender, Receiver: receiver, Amount: parseFloat(amount), Timestamp: new Date().toISOString(), Signature: "your-signature" })
+      }).then(response => response.json()).then(data => alert("Transaction added!"));
+    }
+
+    function mineBlock() {
+      fetch("/mine").then(response => response.json()).then(data => alert("Block mined!"));
+    }
+  </script>
+</head>
+
+<body>
+  <h1>Go Blockchain</h1>
+  <h2>Send Transaction</h2>
+  <input id="sender" placeholder="Sender" />
+  <input id="receiver" placeholder="Receiver" />
+  <input id="amount" placeholder="Amount" />
+  <button onclick="sendTransaction()">Send</button>
+
+  <h2>Mine Block</h2>
+  <button onclick="mineBlock()">Mine</button>
+</body>
+
+</html>
