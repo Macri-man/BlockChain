@@ -1,0 +1,55 @@
+# Node.js
+node_modules/
+
+# Build output
+/dist
+/build
+/coverage
+
+# IDE and editor files
+.vscode/
+.idea/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Angular-specific
+.angular/
+
+# TypeScript
+*.tsbuildinfo
+
+
+# Build output
+/bin
+/pkg
+
+# Go workspace files
+/.idea
+/.vscode
+
+# Go binary
+*.exe
+*.out
+*.test
+
+# Dependency directories
+/vendor/
+
+# Test coverage
+*.cov
+
+# Go module files
+go.sum
+
+# IDE and editor files
+*.swp
+*~
+
+# OS-specific files
+.DS_Store
+Thumbs.db
