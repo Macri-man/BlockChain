@@ -1,25 +1,47 @@
-use curve25519_dalek::{
-    constants::RISTRETTO_BASEPOINT_POINT,
-    ristretto::{CompressedRistretto, RistrettoPoint},
-    scalar::Scalar,
-};
+use curve25519_dalek::ristretto::CompressedRistretto;
+use curve25519_dalek::ristretto::RistrettoPoint;
+use curve25519_dalek::scalar::Scalar;
+
 use rand::rngs::OsRng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
+use std::convert::TryInto;
+use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Keypair {
-    secret: Scalar,
-    public: RistrettoPoint,
+    secret: [u8; 32],
+    public: [u8; 32],
 }
 
 impl Keypair {
     fn generate() -> Self {
         let mut csprng = OsRng;
-        let secret = Scalar::random(&mut csprng);
-        let public = secret * RISTRETTO_BASEPOINT_POINT;
-        Keypair { secret, public }
+        let secret_scalar = Scalar::random(&mut csprng);
+        let public_point = secret_scalar * RISTRETTO_BASEPOINT_POINT;
+        Keypair {
+            secret: secret_scalar.to_bytes(),
+            public: public_point.compress().to_bytes(),
+        }
+    }
+
+    fn save_to_file(&self, path: &str) {
+        let json = serde_json::to_string(self).unwrap();
+        fs::write(path, json).unwrap();
+    }
+
+    fn load_from_file(path: &str) -> Option<Self> {
+        let json = fs::read_to_string(path).ok()?;
+        serde_json::from_str(&json).ok()
+    }
+
+    fn secret_scalar(&self) -> Scalar {
+        Scalar::from_bytes_mod_order(self.secret)
+    }
+
+    fn public_point(&self) -> RistrettoPoint {
+        CompressedRistretto(self.public).decompress().unwrap()
     }
 }
 
@@ -37,11 +59,13 @@ impl Signature {
 
         let mut hasher = Sha512::new();
         hasher.update(R.as_bytes());
-        hasher.update(key.public.compress().as_bytes());
+        hasher.update(&key.public);
         hasher.update(msg);
-        let h = Scalar::from_hash(hasher);
 
-        let s = k + h * key.secret;
+        let hash_bytes = Sha512::digest(data_to_hash);
+        let h = Scalar::from_bytes_mod_order_wide(hash_bytes.as_slice().try_into().unwrap());
+
+        let s = k + h * key.secret_scalar();
 
         Signature {
             R: R.to_bytes(),
@@ -54,16 +78,18 @@ impl Signature {
             Some(r) => r,
             None => return false,
         };
-        let s = match Scalar::from_canonical_bytes(self.s) {
-            Some(s) => s,
-            None => return false,
-        };
+        let s_ct = Scalar::from_canonical_bytes(self.s);
+        if s_ct.is_none().into() {
+            return false;
+        }
+        let s = s_ct.unwrap();
 
         let mut hasher = Sha512::new();
         hasher.update(&self.R);
         hasher.update(pubkey.compress().as_bytes());
         hasher.update(msg);
-        let h = Scalar::from_hash(hasher);
+        let hash_bytes = Sha512::digest(data_to_hash);
+        let h = Scalar::from_bytes_mod_order_wide(hash_bytes.as_slice().try_into().unwrap());
 
         s * RISTRETTO_BASEPOINT_POINT == R + h * pubkey
     }
@@ -91,11 +117,15 @@ impl Transaction {
             Some(s) => s,
             None => return false,
         };
-        let pubkey_bytes = match hex::decode(&self.from) {
+        let _pubkey_bytes = match hex::decode(&self.from) {
             Ok(b) => b,
             Err(_) => return false,
         };
-        let pubkey = match CompressedRistretto::from_slice(&pubkey_bytes).decompress() {
+
+        let pubkey_bytes = hex::decode(&self.from).expect("Invalid hex in sender address");
+        let compressed =
+            CompressedRistretto::from_slice(&pubkey_bytes).expect("Invalid public key bytes");
+        let pubkey = match compressed.decompress() {
             Some(p) => p,
             None => return false,
         };
@@ -121,7 +151,6 @@ impl Block {
     fn new(index: u64, transactions: Vec<Transaction>, prev_hash: String) -> Self {
         let timestamp = now();
         let mut nonce = 0;
-        let mut hash = String::new();
         loop {
             let block = Block {
                 index,
@@ -234,25 +263,32 @@ fn now() -> u128 {
 }
 
 fn main() {
-    let alice = Keypair::generate();
-    let bob = Keypair::generate();
+    let wallet_path = "wallet.json";
+    let keypair = Keypair::load_from_file(wallet_path).unwrap_or_else(|| {
+        let kp = Keypair::generate();
+        kp.save_to_file(wallet_path);
+        kp
+    });
 
-    let alice_addr = hex::encode(alice.public.compress().to_bytes());
-    let bob_addr = hex::encode(bob.public.compress().to_bytes());
+    let address = hex::encode(keypair.public);
+    println!("Using wallet address: {}", address);
+
+    let bob = Keypair::generate();
+    let bob_addr = hex::encode(bob.public);
 
     let mut bc = Blockchain::new();
 
     let mut tx1 = Transaction {
-        from: alice_addr.clone(),
+        from: address.clone(),
         to: bob_addr.clone(),
         amount: 10,
         signature: None,
     };
-    tx1.sign(&alice);
+    tx1.sign(&keypair);
 
     println!("Transaction verified? {}", tx1.verify());
     bc.add_transaction(tx1);
-    bc.mine_block(alice_addr.clone());
+    bc.mine_block(address.clone());
 
     for block in &bc.chain {
         println!("{:#?}", block);
